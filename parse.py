@@ -1,29 +1,29 @@
 import re
-from pathlib import Path
+from pathlib import path
 import libcst as cst
 
 def get_docstring_from_node(node):
     """
-    Returns the docstring string if node.body starts with a string expression,
-    otherwise returns None.
+    returns the docstring string if node.body starts with a string expression,
+    otherwise returns none.
     """
-    # node.body is usually an IndentedBlock for classes/functions, or list for Module
+    # node.body is usually an indentedblock for classes/functions, or list for module
     body = node.body
-    if isinstance(body, cst.IndentedBlock):
-        stmts = body.body  # This is a list of statements
+    if isinstance(body, cst.indentedblock):
+        stmts = body.body  # this is a list of statements
     elif isinstance(body, list):
         stmts = body
     else:
-        # Unknown type, can't extract docstring
-        return None
+        # unknown type, can't extract docstring
+        return none
 
     if stmts:
         first_stmt = stmts[0]
         if (
-            isinstance(first_stmt, cst.SimpleStatementLine)
+            isinstance(first_stmt, cst.simplestatementline)
             and len(first_stmt.body) == 1
-            and isinstance(first_stmt.body[0], cst.Expr)
-            and isinstance(first_stmt.body[0].value, cst.SimpleString)
+            and isinstance(first_stmt.body[0], cst.expr)
+            and isinstance(first_stmt.body[0].value, cst.simplestring)
         ):
             raw_value = first_stmt.body[0].value.value
             if (raw_value.startswith('"""') and raw_value.endswith('"""')) or (
@@ -32,36 +32,36 @@ def get_docstring_from_node(node):
                 return raw_value[3:-3]
             else:
                 return raw_value[1:-1]
-    return None
+    return none
 
-class DocstringCollector(cst.CSTVisitor):
+class docstringcollector(cst.cstvisitor):
     def __init__(self):
         self.scope = []
         self.docstrings = {}
 
-    def visit_Module(self, node):
+    def visit_module(self, node):
         doc = get_docstring_from_node(node)
         if doc:
             self.docstrings['module'] = doc
 
-    def visit_ClassDef(self, node):
+    def visit_classdef(self, node):
         self.scope.append(node.name.value)
         doc = get_docstring_from_node(node)
         if doc:
             qualname = ".".join(self.scope)
             self.docstrings[qualname] = doc
 
-    def leave_ClassDef(self, original_node):
+    def leave_classdef(self, original_node):
         self.scope.pop()
 
-    def visit_FunctionDef(self, node):
+    def visit_functiondef(self, node):
         self.scope.append(node.name.value)
         doc = get_docstring_from_node(node)
         if doc:
             qualname = ".".join(self.scope)
             self.docstrings[qualname] = doc
 
-    def leave_FunctionDef(self, original_node):
+    def leave_functiondef(self, original_node):
         self.scope.pop()
 
 
@@ -69,40 +69,40 @@ def extract_docstrings(filepath):
     with open(filepath, 'r', encoding='utf-8') as f:
         source = f.read()
     tree = cst.parse_module(source)
-    collector = DocstringCollector()
+    collector = docstringcollector()
     tree.visit(collector)
     return collector.docstrings
 
 
-class DocstringRewriter(cst.CSTTransformer):
+class docstringrewriter(cst.csttransformer):
     def __init__(self, docstring_map):
         self.docstring_map = docstring_map
         self.scope = []
 
-    def visit_ClassDef(self, node):
+    def visit_classdef(self, node):
         self.scope.append(node.name.value)
 
-    def leave_ClassDef(self, original_node, updated_node):
+    def leave_classdef(self, original_node, updated_node):
         self.scope.pop()
         return updated_node
 
-    def visit_FunctionDef(self, node):
+    def visit_functiondef(self, node):
         self.scope.append(node.name.value)
 
-    def leave_FunctionDef(self, original_node, updated_node):
+    def leave_functiondef(self, original_node, updated_node):
         self.scope.pop()
         return updated_node
 
-    def leave_SimpleStatementLine(self, original_node, updated_node):
+    def leave_simplestatementline(self, original_node, updated_node):
         if (
             original_node.body
-            and isinstance(original_node.body[0], cst.Expr)
-            and isinstance(original_node.body[0].value, cst.SimpleString)
+            and isinstance(original_node.body[0], cst.expr)
+            and isinstance(original_node.body[0].value, cst.simplestring)
         ):
             qualified_name = ".".join(self.scope) if self.scope else "module"
             if qualified_name in self.docstring_map:
                 new_doc = self.docstring_map[qualified_name]
-                new_string = cst.SimpleString(f'"""{new_doc}"""')
+                new_string = cst.simplestring(f'"""{new_doc}"""')
                 new_expr = original_node.body[0].with_changes(value=new_string)
                 return updated_node.with_changes(body=[new_expr])
         return updated_node
@@ -112,7 +112,7 @@ def rewrite_docstrings(filepath, docstring_map):
         source = f.read()
 
     tree = cst.parse_module(source)
-    rewriter = DocstringRewriter(docstring_map)
+    rewriter = docstringrewriter(docstring_map)
     modified_tree = tree.visit(rewriter)
 
     with open(filepath, "w", encoding="utf-8") as f:
@@ -123,11 +123,15 @@ def build_numpy_section(title, items):
     lowest_indent = min([lvl for lvl in indent_levels if lvl > 0], default=0)
     output = []
     if title:
-        output.append(' ' * lowest_indent + title)
-        output.append(' ' * lowest_indent + len(title) * '-')
+        if title.lower().strip().rstrip(":") == "arguments":
+            output.append((' '*lowest_indent + 'parameters'))
+            output.append(' ' * lowest_indent + '----------')
+        else:
+            output.append(' ' * lowest_indent + title)
+            output.append(' ' * lowest_indent + len(title) * '-')
     else:
         output.append('')
-        output.append(' '*lowest_indent + 'Attributes')
+        output.append(' '*lowest_indent + 'attributes')
         output.append(' ' * lowest_indent + '----------')
     for name, desc in items:
         desc_lines = desc.split('\n')
@@ -142,11 +146,11 @@ def parse_custom_sections(docstring):
     lines = docstring.strip().splitlines()
     output = []
     section_lines = []
-    current_section = None
-    attr_pattern = re.compile(r'^(\s*\S+)\s*--\s*(.*)$')
+    current_section = none
+    attr_pattern = re.compile(r'^(\s*\s+)\s*--\s*(.*)$')
 
     i = 0
-    in_section = False
+    in_section = false
     while i < len(lines):
         line = lines[i].rstrip()
 
@@ -158,20 +162,20 @@ def parse_custom_sections(docstring):
                 if section_lines:
                     section_lines[-1][1] += '\n' + line.strip()
 
-            # End of a section
+            # end of a section
             if (i == len(lines) - 1 or lines[i + 1].strip() == '') and in_section:
-                # Flush previous section
+                # flush previous section
                 output.extend(build_numpy_section(current_section, section_lines))
                 section_lines = []
-                in_section = False
+                in_section = false
 
-        # Start of a new section
+        # start of a new section
         elif i != len(lines) - 1 and lines[i+1].count('--') == 1:
             if line != '':
                 current_section = line.strip().rstrip(':')
             else:
-                current_section = None
-            in_section = True
+                current_section = none
+            in_section = true
 
         else:
             output.append(line)
@@ -188,8 +192,8 @@ def parse_custom_sections(docstring):
 
     
 if __name__ == "__main__":
-    # want_break = False
-    source_dir_path = Path("diffpy.srfit/src/diffpy/srfit/")
+    # want_break = false
+    source_dir_path = path("diffpy.srfit/src/diffpy/srfit/")
     for file in source_dir_path.rglob("*.py"):
         docs = extract_docstrings(str(file))
         for qualname, doc in docs.items():
